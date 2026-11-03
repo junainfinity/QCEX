@@ -1,0 +1,86 @@
+name: qcex
+services:
+  mysql:
+    image: mysql:8.4.6@sha256:869218921e61d6c3c89820955d63cca42971f0e3e6c1e2792247bbd944ebc6e9
+    command: ["--log-bin-trust-function-creators=1"]
+    environment:
+      MYSQL_DATABASE: qcex
+      MYSQL_USER: qcex
+      MYSQL_PASSWORD: ${DATABASE_PASSWORD:?Run scripts/bootstrap.ps1}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Run scripts/bootstrap.ps1}
+    ports: ["127.0.0.1:3308:3306"]
+    volumes: ["mysql-data:/var/lib/mysql"]
+    healthcheck:
+      test: ["CMD-SHELL", "MYSQL_PWD=$$MYSQL_PASSWORD mysql -uqcex -D qcex -e 'SELECT 1' >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+  api:
+    profiles: [preview]
+    image: qcex-api:0.1.0-preview
+    build:
+      context: .
+      dockerfile: services/exchange/Dockerfile
+    environment:
+      DATABASE_URL: jdbc:mysql://mysql:3306/qcex
+      DATABASE_USER: qcex
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD}
+      BIND_ADDRESS: 0.0.0.0
+    depends_on:
+      mysql:
+        condition: service_healthy
+    ports: ["127.0.0.1:8088:8088"]
+    healthcheck:
+      test: ["CMD", "java", "-cp", "/app/health", "Healthcheck"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 10
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+  web:
+    profiles: [preview]
+    image: qcex-web:0.1.0-preview
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    environment:
+      EXCHANGE_URL: http://api:8088
+      MARKET_DATA_URL: http://market-data:8090
+    depends_on:
+      api:
+        condition: service_healthy
+      market-data:
+        condition: service_healthy
+    ports: ["127.0.0.1:3100:3100"]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3100/api/status').then(async r=>process.exit(r.ok && (await r.json()).ledger.balanced ? 0 : 1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+  market-data:
+    profiles: [preview]
+    image: qcex-market-data:0.2.0-preview
+    build:
+      context: .
+      dockerfile: services/market-data/Dockerfile
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8090/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+volumes:
+  mysql-data:

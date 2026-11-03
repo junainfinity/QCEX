@@ -1,0 +1,11 @@
+**/node_modules
+**/.next
+**/target
+.tools
+.env
+.env.*
+.git
+QCEX
+artifacts
+test-results
+playwright-report

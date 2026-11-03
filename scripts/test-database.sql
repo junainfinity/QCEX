@@ -1,0 +1,2 @@
+CREATE DATABASE IF NOT EXISTS qcex_test;
+GRANT ALL PRIVILEGES ON qcex_test.* TO 'qcex'@'%';
